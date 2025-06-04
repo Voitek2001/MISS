@@ -14,12 +14,33 @@ import javafx.scene.layout.BorderPane
 import javafx.scene.layout.HBox
 import javafx.scene.layout.VBox
 import javafx.stage.Stage
+import kotlin.math.max
+import kotlin.math.min
 
 class SimulationApp : Application() {
 
     private var gc: GraphicsContext? = null
+    private lateinit var hospitalImage: javafx.scene.image.Image
+    private lateinit var houseImage: javafx.scene.image.Image
+    private lateinit var POIImage: javafx.scene.image.Image
 
     override fun start(primaryStage: Stage) {
+
+        hospitalImage = javafx.scene.image.Image(
+            javaClass.getResource("/hospital.png")?.toExternalForm()
+                ?: throw RuntimeException("Nie znaleziono obrazka szpitala!")
+        )
+
+        houseImage = javafx.scene.image.Image(
+            javaClass.getResource("/house.png")?.toExternalForm()
+                ?: throw RuntimeException("Nie znaleziono obrazka szpitala!")
+        )
+
+        POIImage = javafx.scene.image.Image(
+            javaClass.getResource("/POI.png")?.toExternalForm()
+                ?: throw RuntimeException("Nie znaleziono obrazka szpitala!")
+        )
+
         var simulationEngine: SimulationEngine? = null
         var simulationThread: Thread
 
@@ -62,13 +83,17 @@ class SimulationApp : Application() {
         setupBtn.setOnMouseClicked {
             simulationEngine?.stopThread()
             val worldConfig = WorldConfig(
-                width = 500,
-                height = 500,
-                startNumberOfPeople = peopleNumber.value.toInt(),
-                infectiousness = Percentage.from(infectionRate.value)?: throw RuntimeException(),
+                width = 450,
+                height = 450,
+                startNumberOfPeople = 72,
+                infectiousness = Percentage.from(0.13)?: throw RuntimeException(),
                 recoverChance = Percentage.from(recoveryRate.value)?: throw RuntimeException(),
                 daysOfSimulation = 20,
-                infectionDistanceThreshold = 5
+                infectionDistanceThreshold = 5,
+                numberOfPointOfInterest = 10,
+                numberOfHouses = 10,
+                numberOfHospitals = 4,
+                infectiousnessWithMask = Percentage.from(max(infectionRate.value - 0.1, 0.0))?: throw RuntimeException()
             )
             simulationEngine = SimulationEngine(worldConfig, this)
         }
@@ -123,5 +148,23 @@ class SimulationApp : Application() {
             gc!!.fillOval(it.position.x.toDouble(), it.position.y.toDouble(), 10.0, 10.0)
         }
 
+    }
+
+    fun setHospitals(hospitals: List<SimulationCanvasElements>) {
+        hospitals.forEach {
+            gc!!.drawImage(hospitalImage, it.position.x.toDouble(), it.position.y.toDouble(), 25.0, 25.0)
+        }
+    }
+
+    fun setHouses(houses: List<SimulationCanvasElements>) {
+        houses.forEach {
+            gc!!.drawImage(houseImage, it.position.x.toDouble(), it.position.y.toDouble(), 25.0, 25.0)
+        }
+    }
+
+    fun setPOI(POIList: List<SimulationCanvasElements>) {
+        POIList.forEach {
+            gc!!.drawImage(POIImage, it.position.x.toDouble(), it.position.y.toDouble(), 25.0, 25.0)
+        }
     }
 }

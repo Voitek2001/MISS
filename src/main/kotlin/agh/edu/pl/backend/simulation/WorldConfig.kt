@@ -10,4 +10,8 @@ data class WorldConfig(
     val recoverChance: Percentage,
     val daysOfSimulation: Int,
     val infectionDistanceThreshold: Int,
+    val numberOfPointOfInterest: Int,
+    val numberOfHouses: Int,
+    val numberOfHospitals: Int,
+    val infectiousnessWithMask: Percentage
 )

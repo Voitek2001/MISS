@@ -1,6 +1,8 @@
 plugins {
     kotlin("jvm") version "1.9.21"
     id("org.openjfx.javafxplugin") version "0.1.0"
+    kotlin("plugin.serialization") version "1.9.0" // dopasuj wersję do projektu
+
 
 }
 
@@ -18,6 +20,8 @@ repositories {
 
 dependencies {
     testImplementation("org.jetbrains.kotlin:kotlin-test")
+    implementation("org.jetbrains.kotlinx:kotlinx-serialization-json:1.6.0")
+
 }
 
 tasks.test {
