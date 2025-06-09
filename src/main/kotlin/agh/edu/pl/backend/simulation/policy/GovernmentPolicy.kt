@@ -1,4 +1,4 @@
-package agh.edu.pl.backend.simulation.agent
+package agh.edu.pl.backend.simulation.policy
 
 data class GovernmentPolicy(
     val level: Int,

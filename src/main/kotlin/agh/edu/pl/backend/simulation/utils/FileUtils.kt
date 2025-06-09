@@ -1,4 +1,4 @@
-package agh.edu.pl.backend.simulation
+package agh.edu.pl.backend.simulation.utils
 
 import java.io.File
 

@@ -1,8 +1,8 @@
 package agh.edu.pl.backend.simulation.agent
 
-import agh.edu.pl.backend.simulation.WorldConfig
+import agh.edu.pl.backend.simulation.simulation.WorldConfig
+import agh.edu.pl.backend.simulation.policy.GovernmentPolicy
 import agh.edu.pl.backend.simulation.tracker.*
-import agh.edu.pl.backend.simulation.utils.Percentage
 import agh.edu.pl.backend.simulation.worldElements.Hospital
 import agh.edu.pl.backend.simulation.worldElements.House
 import agh.edu.pl.backend.simulation.worldElements.PointOfInterest
@@ -13,13 +13,13 @@ import kotlin.math.pow
 import kotlin.random.Random
 
 
-class Person(
+class Agent(
     var position: Position,
-    val simulationTracker: SimulationTracker,
-    val house: House,
-    val hospital: Hospital,
-    val pointOfInterest: PointOfInterest,
-    val worldConfig: WorldConfig,
+    private var simulationTracker: SimulationTracker,
+    private val house: House,
+    private val hospital: Hospital,
+    private val pointOfInterest: PointOfInterest,
+    private val worldConfig: WorldConfig,
     private var daysAlive: Int = 0,
     private var daysLatent: Int = 0,
     private var daysInfected: Int = 0,
@@ -46,88 +46,8 @@ class Person(
         changeStatus(HealthStatus.LATENT)
     }
 
-    fun infect(numberOfInfectedAround: Int, infectiousness: Double) {
-        if (healthStatus != HealthStatus.HEALTHY) return
-
-        if (infectionChance(numberOfInfectedAround, infectiousness) > Random.nextDouble()) {
-            changeStatus(HealthStatus.LATENT)
-        }
-    }
-
-    override fun nextDay() {
-        if (healthStatus == HealthStatus.DEAD) return
-        daysAlive++
-        if (healthStatus == HealthStatus.LATENT) {
-            daysLatent++
-            if (daysLatent == LATENT_PERIOD_DAYS) {
-                if (Random.nextDouble() < ASYMPTOTIC_INFECTION_RATE) {
-                    changeStatus(HealthStatus.ASYMPTOMATIC)
-                } else {
-                    changeStatus(HealthStatus.SYMPTOMATIC)
-                }
-                return
-            }
-        }
-
-        if (healthStatus == HealthStatus.IMMUNE) {
-            daysImmune++
-            if (daysImmune == IMMUNITY_LOSS_DAYS) {
-                changeStatus(HealthStatus.HEALTHY)
-                daysImmune = 0
-                daysLatent = 0
-                daysInfected = 0
-
-                if (Random.nextDouble() < REINFECTION_RATE) {
-                    changeStatus(HealthStatus.LATENT)
-                }
-            }
-            return
-        }
-
-        if (healthStatus == HealthStatus.ASYMPTOMATIC || healthStatus == HealthStatus.SYMPTOMATIC) {
-            daysInfected++
-            if (daysInfected >= INFECTION_PERIOD_DAYS) {
-                if (Random.nextDouble() < INFECTION_FATALITY_RATE) {
-                    changeStatus(HealthStatus.DEAD)
-                } else {
-                    changeStatus(HealthStatus.IMMUNE)
-                    daysImmune = 0
-                }
-            }
-            return
-        }
-
-    }
-
-    fun isInfected() = healthStatus == HealthStatus.SYMPTOMATIC || healthStatus == HealthStatus.ASYMPTOMATIC
-
-    private fun infectionChance(numberOfInfected: Int, infectiousness: Double) =
-        1 - (1 - infectiousness).pow(numberOfInfected)
-
-    private fun recoveryChance(immuneRate: Double) = 1 - (1 - immuneRate)
-
-
-    private fun changeStatus(newHealthStatus: HealthStatus) {
-        val oldHealthStatus = healthStatus
-        healthStatus = newHealthStatus
-        simulationTracker.updateStatusTracking(oldHealthStatus, newHealthStatus)
-    }
-
-
-    override fun toString(): String {
-        return buildString {
-            append("Person at $position")
-            append(" | Alive: $daysAlive days")
-            if (isInfected()) append(" | Infected for: $daysLatent days")
-            append(" | Status: $healthStatus")
-        }
-    }
-
     fun stayAtHomeOrHospital(numberOfInfectedAround: Int, currentPolicy: GovernmentPolicy) {
         if (healthStatus == HealthStatus.DEAD) return
-        // Przypadek: zdrowy może się zarazić
-        // W tym kroku sie nie ruszam, jestem tam gdzie jestem, moge sie jedynie zarazic,
-        // sprawdzam jedynie czy powinienem nosic maske bo to zmienia szanse na zarażenie.
         if (healthStatus == HealthStatus.HEALTHY) {
             if (Random.nextDouble() < currentPolicy.maskRate) {
                 infect(numberOfInfectedAround, worldConfig.infectiousnessWithMask.value)
@@ -138,13 +58,12 @@ class Person(
 
     }
 
+
     fun commute(numberOfInfectedAround: Int, currentPolicy: GovernmentPolicy) {
-        // agent podrózuje
         if (healthStatus == HealthStatus.DEAD) return
 
         if (currentPolicy.areaLockdown ||
             currentPolicy.isolation && healthStatus == HealthStatus.SYMPTOMATIC) {
-            // Całkowity lockdown – agent nie wychodzi
             return
         }
 
@@ -167,20 +86,72 @@ class Person(
 
     }
 
-    private fun checkIfCanBeInfected(currentPolicy: GovernmentPolicy, numberOfInfectedAround: Int) {
-        if (healthStatus == HealthStatus.HEALTHY) {
-            if (Random.nextDouble() < currentPolicy.maskRate) {
-                infect(numberOfInfectedAround, worldConfig.infectiousnessWithMask.value)
-            } else {
-                infect(numberOfInfectedAround, worldConfig.infectiousness.value)
+    private fun infect(numberOfInfectedAround: Int, infectiousness: Double) {
+        if (healthStatus != HealthStatus.HEALTHY) return
+
+        if (infectionChance(numberOfInfectedAround, infectiousness) > Random.nextDouble()) {
+            changeStatus(HealthStatus.LATENT)
+        }
+    }
+
+    override fun nextDay() {
+        if (healthStatus == HealthStatus.DEAD) return
+        daysAlive++
+        when (healthStatus) {
+            HealthStatus.LATENT -> {
+                daysLatent++
+                nextDayForLatent()
+            }
+            HealthStatus.IMMUNE -> {
+                daysImmune++
+                nextDayForImmune()
+            }
+            HealthStatus.ASYMPTOMATIC, HealthStatus.SYMPTOMATIC -> {
+                daysInfected++
+                nextDayForInfected()
+            }
+
+            else -> {}
+        }
+
+    }
+
+    private fun nextDayForLatent() {
+        if (daysLatent == LATENT_PERIOD_DAYS && Random.nextDouble() < ASYMPTOTIC_INFECTION_RATE) {
+            changeStatus(HealthStatus.ASYMPTOMATIC)
+        } else {
+            changeStatus(HealthStatus.SYMPTOMATIC)
+        }
+    }
+
+    private fun nextDayForImmune() {
+        if (daysImmune == IMMUNITY_LOSS_DAYS) {
+            changeStatus(HealthStatus.HEALTHY)
+            daysImmune = 0
+            daysLatent = 0
+            daysInfected = 0
+
+            if (Random.nextDouble() < REINFECTION_RATE) {
+                changeStatus(HealthStatus.LATENT)
             }
         }
     }
 
-    fun stayAtDestination(numberOfInfectedAround: Int, currentPolicy: GovernmentPolicy) {
-        if (healthStatus == HealthStatus.DEAD) return
-        checkIfCanBeInfected(currentPolicy, numberOfInfectedAround)
+    private fun nextDayForInfected() {
+        if (daysInfected >= INFECTION_PERIOD_DAYS) {
+            if (Random.nextDouble() < INFECTION_FATALITY_RATE) {
+                changeStatus(HealthStatus.DEAD)
+            } else {
+                changeStatus(HealthStatus.IMMUNE)
+                daysImmune = 0
+            }
+        }
     }
+
+    fun isInfected() = healthStatus == HealthStatus.SYMPTOMATIC || healthStatus == HealthStatus.ASYMPTOMATIC
+
+    private fun infectionChance(numberOfInfected: Int, infectiousness: Double) =
+        1 - (1 - infectiousness).pow(numberOfInfected)
 
     fun returnHomeOrStayAtHospital(numberOfInfectedAround: Int, currentPolicy: GovernmentPolicy) {
 
@@ -195,6 +166,26 @@ class Person(
         }
         moveToward(house)
         checkIfCanBeInfected(currentPolicy, numberOfInfectedAround)
+    }
+
+    fun reset(simulationTracker: SimulationTracker) {
+        this.simulationTracker = simulationTracker
+        healthStatus = HealthStatus.HEALTHY
+        position = house.position
+        daysAlive = 0
+        daysLatent = 0
+        daysInfected = 0
+        daysImmune = 0
+    }
+
+    private fun checkIfCanBeInfected(currentPolicy: GovernmentPolicy, numberOfInfectedAround: Int) {
+        if (healthStatus == HealthStatus.HEALTHY) {
+            if (Random.nextDouble() < currentPolicy.maskRate) {
+                infect(numberOfInfectedAround, worldConfig.infectiousnessWithMask.value)
+            } else {
+                infect(numberOfInfectedAround, worldConfig.infectiousness.value)
+            }
+        }
     }
 
     private fun moveToward(dest: WorldElement) {
@@ -214,5 +205,20 @@ class Person(
         }
 
         position = position.plus(Position(stepX, stepY))
+    }
+
+    private fun changeStatus(newHealthStatus: HealthStatus) {
+        val oldHealthStatus = healthStatus
+        healthStatus = newHealthStatus
+        simulationTracker.updateStatusTracking(oldHealthStatus, newHealthStatus)
+    }
+
+    override fun toString(): String {
+        return buildString {
+            append("Agent at $position")
+            append(" | Alive: $daysAlive days")
+            if (isInfected()) append(" | Infected for: $daysLatent days")
+            append(" | Status: $healthStatus")
+        }
     }
 }

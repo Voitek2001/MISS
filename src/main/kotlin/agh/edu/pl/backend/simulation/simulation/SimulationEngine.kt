@@ -1,11 +1,16 @@
-package agh.edu.pl.backend.simulation
+package agh.edu.pl.backend.simulation.simulation
 
-import agh.edu.pl.backend.simulation.GUI.SimulationApp
-import agh.edu.pl.backend.simulation.GUI.SimulationCanvasElements
+import agh.edu.pl.backend.simulation.gui.SimulationApp
+import agh.edu.pl.backend.simulation.gui.SimulationCanvasElements
 import agh.edu.pl.backend.simulation.agent.*
+import agh.edu.pl.backend.simulation.gui.SimulationCanvasElementsWithImage
+import agh.edu.pl.backend.simulation.gui.WorldElementKind
+import agh.edu.pl.backend.simulation.policy.predefinedPolicies
 import agh.edu.pl.backend.simulation.tracker.SimulationTracker
 import agh.edu.pl.backend.simulation.utils.getHospitalPos
 import agh.edu.pl.backend.simulation.utils.getRandomPosition
+import agh.edu.pl.backend.simulation.utils.loadQTableFromFile
+import agh.edu.pl.backend.simulation.utils.saveQTableToFile
 import agh.edu.pl.backend.simulation.worldElements.Hospital
 import agh.edu.pl.backend.simulation.worldElements.House
 import agh.edu.pl.backend.simulation.worldElements.PointOfInterest
@@ -22,19 +27,20 @@ class SimulationEngine(
 
     private var simulationTracker: SimulationTracker = SimulationTracker(worldConfig.startNumberOfPeople)
     private var isRunning = false
-    private var simulationAgents: List<Person> = mutableListOf()
-    private var world: World = World(worldConfig, simulationAgents)
+    private var simulationAgents: List<Agent> = mutableListOf()
+    private var world: World = World(simulationAgents)
 
     private val hospitals: List<Hospital> = mutableListOf()
     private val houses: List<House> = mutableListOf()
     private val pointsOfInterest: List<PointOfInterest> = mutableListOf()
     private val allWorldElements: List<WorldElement> = mutableListOf()
-    var qTable = mutableMapOf<List<Int>, IntArray>()
+    private var qTable = mutableMapOf<List<Int>, IntArray>()
 
-    var epsilon = 0.99
-    var epsilonDecayRate = 0.001
-    val rewardsList: List<Double> = mutableListOf()
-
+    private var epsilon = 0.99
+    private var epsilonDecayRate = 0.001
+    private val rewardsList: List<Double> = mutableListOf()
+    private val trackersList: List<SimulationTracker> = mutableListOf()
+    private val results: List<Double> = mutableListOf()
 
     init {
 
@@ -58,7 +64,7 @@ class SimulationEngine(
 
         for (i in 1..worldConfig.startNumberOfPeople) {
             val currHouse = houses.random()
-            simulationAgents.addLast(Person(currHouse.position, simulationTracker, currHouse, hospitals.random(), pointsOfInterest.random(), worldConfig))
+            simulationAgents.addLast(Agent(currHouse.position, simulationTracker, currHouse, hospitals.random(), pointsOfInterest.random(), worldConfig))
         }
 
         for (i in 0 until INITIAL_INFECTION_COUNT) {
@@ -69,17 +75,19 @@ class SimulationEngine(
 
     }
 
-    var train = false
     override fun run() {
         isRunning = true
-//        if (!train) {
-//            qTable = loadQTableFromFile("qtable.json")
-//        }
+        // TODO move train to App level and add to UI
+        var train = false
+        if (!train) {
+            qTable = loadQTableFromFile("qtable.json")
+        }
+
+        // TODO as above
         learn(2000)
     }
-    val results: List<Double> = mutableListOf()
-    val totalDead: List<Int> = mutableListOf()
-        fun learn(maxAttempts: Int) {
+
+    private fun learn(maxAttempts: Int) {
         for (i in 1..maxAttempts) {
             val rewardSum = attempt()
             rewardsList.addLast(rewardSum)
@@ -109,7 +117,7 @@ class SimulationEngine(
 
 
 
-    fun attempt(): Double {
+    private fun attempt(): Double {
 
         var observation = discretise(getObservation())
 
@@ -130,15 +138,22 @@ class SimulationEngine(
             day++
         }
         println(simulationTracker.getDescriptionString())
-        totalDead.addLast(simulationTracker.numberOfDead)
-
+        trackersList.addLast(simulationTracker)
         return rewardSum
     }
 
     private fun saveStatsToFile(fileName: String) {
         File(fileName).bufferedWriter().use { out ->
-            results.forEach { result ->
-                out.write("$result\n")
+            out.write("healthy,latent,asymptomatic,symptomatic,immune,dead\n")
+            trackersList.forEach { result ->
+                out.write("" +
+                        "${result.numberOfHealthy}," +
+                        "${result.numberOfLatent}," +
+                        "${result.numberOfAsymptomatic}," +
+                        "${result.numberOfSymptomatic}," +
+                        "${result.numberOfImmune}," +
+                        "${result.numberOfDead}" +
+                        "\n")
             }
         }
     }
@@ -194,14 +209,11 @@ class SimulationEngine(
     }
 
     private fun resetSimulation() {
-        simulationAgents = mutableListOf()
+        // TODO refactor to use same simulation tracker
         simulationTracker = SimulationTracker(worldConfig.startNumberOfPeople)
-
-        for (i in 1..worldConfig.startNumberOfPeople) {
-            val currHouse = houses.random()
-            simulationAgents.addLast(Person(currHouse.position, simulationTracker, currHouse, hospitals.random(), pointsOfInterest.random(), worldConfig))
+        for (agent in simulationAgents) {
+            agent.reset(simulationTracker)
         }
-        world = World(worldConfig, simulationAgents)
 
         for (i in 0 until INITIAL_INFECTION_COUNT) {
             simulationAgents[i].startInfection()
@@ -210,7 +222,7 @@ class SimulationEngine(
     }
 
 
-    fun simulateNextDays(action: Int, day: Int): StepResult {
+    private fun simulateNextDays(action: Int, day: Int): StepResult {
         var reward = 0.0
         val currentPolicy = predefinedPolicies[action]
         for (dayOffset in 0 until 5) {
@@ -223,25 +235,25 @@ class SimulationEngine(
                     }
                 }
                 reward += calculateReward(action)
-//                updateGrid()
-//                Thread.sleep(100)
+                updateGrid()
+                Thread.sleep(100)
 
             }
             handleNextDay()
-//            println(simulationTracker.getDescriptionString())
-//            updateGrid()
-//            Thread.sleep(500)
+            println(simulationTracker.getDescriptionString())
+            updateGrid()
+            Thread.sleep(500)
         }
 
         return StepResult(
-            false, day > 300,
+            false, day > 100,
             getObservation(),
             reward
         )
     }
 
-    fun calculateReward(lockdownLevel: Int): Double {
-        return calculateRc() + calculateRh() + calculateRp(lockdownLevel)
+    private fun calculateReward(lockdownLevel: Int): Double {
+        return calculateRc() + 20 * calculateRh() + calculateRp(lockdownLevel)
     }
 
     private fun calculateRc(): Double =
@@ -271,26 +283,26 @@ class SimulationEngine(
 
 
     private fun setUpHospitals() {
-        simulationApp.setHospitals(hospitals.map {
-            SimulationCanvasElements(Hospital.hospitalColor, it.position)
+        simulationApp.drawImage(hospitals.map {
+            SimulationCanvasElementsWithImage(it.position, WorldElementKind.HOSPITAL)
         })
     }
 
     private fun setUpHouses() {
 
-        simulationApp.setHouses(houses.map {
-            SimulationCanvasElements(House.houseColor, it.position)
+        simulationApp.drawImage(houses.map {
+            SimulationCanvasElementsWithImage(it.position, WorldElementKind.HOUSE)
         })
     }
 
     private fun setUpPOI() {
 
-        simulationApp.setPOI(pointsOfInterest.map {
-            SimulationCanvasElements(PointOfInterest.pointOfInterestColor, it.position)
+        simulationApp.drawImage(pointsOfInterest.map {
+            SimulationCanvasElementsWithImage(it.position, WorldElementKind.POI)
         })
     }
     private fun updateGrid() {
-//        println(simulationTracker.getDescriptionString())
+        println(simulationTracker.getDescriptionString())
         val simulationElements = simulationAgents.map {
             SimulationCanvasElements(getColorForStatus(it.healthStatus), it.position)
         }
@@ -298,7 +310,6 @@ class SimulationEngine(
         setUpHospitals()
         setUpHouses()
         setUpPOI()
-        //TODO dodać jeszcze wyswietlanie tego co liczy simulationTracker
     }
 
     private fun getColorForStatus(healthStatus: HealthStatus): Color {
