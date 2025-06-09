@@ -78,7 +78,7 @@ class SimulationEngine(
     override fun run() {
         isRunning = true
         // TODO move train to App level and add to UI
-        var train = false
+        var train = true
         if (!train) {
             qTable = loadQTableFromFile("qtable.json")
         }
