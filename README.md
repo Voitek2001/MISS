@@ -18,8 +18,6 @@ This project aims to simulate the spread of a contagious disease (like COVID-19)
 - Stochastic infection model based on proximity and behavior
 - Reward function balancing economy, health, and stress
 - Q-learning algorithm with adjustable parameters
-- Support for comparative analysis of learned vs. random/static policies
-- Four-region spatial simulation grid (500x500) with homes, POIs, and hospitals
 
 ## Simulation Results
 
